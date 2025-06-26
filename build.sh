@@ -73,6 +73,24 @@ make -j$(nproc)
 make install
 cd "$DEPS_DIR"
 
+# Download and build ustream-ssl (required for TLS support)
+if [ ! -d "ustream-ssl" ]; then
+    echo "Downloading ustream-ssl..."
+    git clone https://git.openwrt.org/project/ustream-ssl.git
+fi
+
+cd ustream-ssl
+mkdir -p build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
+         -DCMAKE_C_FLAGS="$CFLAGS" \
+         -DMBEDTLS=OFF \
+         -DWOLFSSL=OFF \
+         -DOPENSSL=ON
+make -j$(nproc)
+make install
+cd "$DEPS_DIR"
+
 # Return to source directory
 cd ..
 
@@ -242,7 +260,7 @@ echo "Linking fuzzer..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o tls.o cgi.o mock_libubox.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -ljson-c -lcrypt -ldl -lssl -lcrypto \
+    $LDFLAGS -ljson-c -lcrypt -ldl -lssl -lcrypto -lustream-ssl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files
