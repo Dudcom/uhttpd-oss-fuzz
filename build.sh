@@ -73,23 +73,8 @@ make -j$(nproc)
 make install
 cd "$DEPS_DIR"
 
-# Download and build ustream-ssl (required for TLS support)
-if [ ! -d "ustream-ssl" ]; then
-    echo "Downloading ustream-ssl..."
-    git clone https://git.openwrt.org/project/ustream-ssl.git
-fi
-
-cd ustream-ssl
-mkdir -p build
-cd build
-cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
-         -DCMAKE_C_FLAGS="$CFLAGS" \
-         -DMBEDTLS=OFF \
-         -DWOLFSSL=OFF \
-         -DOPENSSL=ON
-make -j$(nproc)
-make install
-cd "$DEPS_DIR"
+# Skip ustream-ssl build since we're disabling TLS for fuzzing
+echo "Skipping ustream-ssl build (TLS disabled for fuzzing compatibility)"
 
 # Return to source directory
 cd ..
@@ -125,8 +110,8 @@ export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_
 export CFLAGS="$CFLAGS -I$DEPS_DIR/install/include"
 export LDFLAGS="$LDFLAGS -L$DEPS_DIR/install/lib"
 
-# Add uhttpd-specific flags
-export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW -DHAVE_TLS -DHAVE_UBUS"
+# Add uhttpd-specific flags (disable TLS to avoid OpenSSL compatibility issues in fuzzing)
+export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW -DHAVE_UBUS"
 export CFLAGS="$CFLAGS -Wno-c23-extensions -std=gnu99"
 
 echo "Compiling uhttpd source files..."
@@ -141,7 +126,7 @@ $CC $CFLAGS -c handler.c -o handler.o
 $CC $CFLAGS -c listen.c -o listen.o
 $CC $CFLAGS -c plugin.c -o plugin.o
 $CC $CFLAGS -c relay.c -o relay.o
-$CC $CFLAGS -c tls.c -o tls.o
+# Skip tls.c since TLS is disabled
 $CC $CFLAGS -c cgi.c -o cgi.o
 
 # Conditionally compile optional modules
@@ -249,6 +234,12 @@ void blobmsg_close_table(void *buf, void *cookie) { }
 int blobmsg_add_json_element(void *buf, const char *name, void *json) { return 0; }
 int blobmsg_add_field(void *buf, int type, const char *name, void *data, int len) { return 0; }
 void blobmsg_add_u32(void *buf, const char *name, uint32_t val) { }
+
+// TLS functions (mocked since TLS is disabled)
+int uh_tls_init(const char *key, const char *crt, const char *ciphers) { return 0; }
+void uh_tls_client_attach(void *cl) { }
+void uh_tls_client_detach(void *cl) { }
+int uh_first_tls_port(int family) { return -1; }
 EOF
 
 $CC $CFLAGS -c mock_libubox.c -o mock_libubox.o
@@ -259,8 +250,8 @@ $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 echo "Linking fuzzer..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
-    relay.o tls.o cgi.o mock_libubox.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -ljson-c -lcrypt -ldl -lssl -lcrypto -lustream-ssl \
+    relay.o cgi.o mock_libubox.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
+    $LDFLAGS -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files
