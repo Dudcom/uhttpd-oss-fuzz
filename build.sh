@@ -10,15 +10,14 @@ mkdir -p "$DEPS_DIR"
 cd "$DEPS_DIR"
 
 # Clean up any existing builds to avoid conflicts
-rm -rf libubox/build ubus/build
+rm -rf libubox/build
 
 # Download and build libubox (required for uhttpd)
 if [ ! -d "libubox" ]; then
     echo "Downloading libubox..."
     git clone https://github.com/openwrt/libubox.git
     cd libubox
-    rm -rf tests
-    # Don't remove examples directory, just ensure it won't be built
+    rm -rf tests examples
     cd ..
 fi
 
@@ -42,12 +41,6 @@ cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
 make -j$(nproc)
 make install
 cd "$DEPS_DIR"
-
-# Skip libubus build since we're not using ubus support
-echo "Skipping libubus build (ubus support disabled for fuzzing)"
-
-# Skip ustream-ssl build since we're disabling TLS for fuzzing
-echo "Skipping ustream-ssl build (TLS disabled for fuzzing compatibility)"
 
 # Return to source directory
 cd ..
@@ -102,16 +95,13 @@ $CC $CFLAGS -c relay.c -o relay.o
 # Skip tls.c since TLS is disabled
 $CC $CFLAGS -c cgi.c -o cgi.o
 
-# Conditionally compile optional modules
-# Skip ubus support for fuzzing (focus on core HTTP functionality)
+# Skip optional modules for simplicity
 echo "Skipping ubus support (not needed for fuzzing)"
 UBUS_OBJ=""
 
-# Skip Lua support for fuzzing (headers not available)
 echo "Skipping Lua support (not needed for fuzzing)"
 LUA_OBJ=""
 
-# Skip ucode support for fuzzing (headers not available)
 echo "Skipping ucode support (not needed for fuzzing)"
 UCODE_OBJ=""
 
@@ -138,11 +128,11 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer..."
+echo "Linking fuzzer statically..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
+    $LDFLAGS -static -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files
