@@ -171,4 +171,4 @@ rm -f *.o
 
 echo "Build completed successfully!"  
 echo "Fuzzer binary: $OUT/uhttpd_fuzzer"
-echo "Shared libraries: $OUT"
+echo "Shared libraries: $OUT/"
