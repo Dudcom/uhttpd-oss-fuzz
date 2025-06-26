@@ -29,6 +29,9 @@ struct in_addr {
 };
 #endif
 
+// Include blobmsg header explicitly
+#include <libubox/blobmsg.h>
+
 #include "uhttpd.h"
 
 // Define missing macros that might be needed
@@ -94,7 +97,8 @@ static void add_url_to_client(struct client *cl, const char *url) {
     
     // Add the URL as the first string in the blob buffer
     // This mimics how uhttpd normally stores parsed header data
-    blobmsg_add_string(&cl->hdr, "url", url);
+    // From client.c:client_parse_request: blobmsg_add_string(&cl->hdr, "URL", path);
+    blobmsg_add_string(&cl->hdr, "URL", url);
 }
 
 // Helper function to sanitize header data for client_parse_header
