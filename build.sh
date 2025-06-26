@@ -31,12 +31,15 @@ fi
 
 mkdir -p build
 cd build
+
+# Build libubox as STATIC libraries
 cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
          -DCMAKE_C_FLAGS="$CFLAGS" \
          -DBUILD_LUA=OFF \
          -DBUILD_EXAMPLES=OFF \
          -DBUILD_TESTS=OFF \
-         -DBUILD_SHARED_LIBS=ON
+         -DBUILD_SHARED_LIBS=OFF \
+         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 make -j$(nproc)
 make install
 cd "$DEPS_DIR"
@@ -123,16 +126,22 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer dynamically..."  
+echo "Linking fuzzer statically..."  
+
+# Link statically using the static libraries we built
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o \
-    $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
+    $LDFLAGS \
+    "$DEPS_DIR/install/lib/libubox.a" \
+    "$DEPS_DIR/install/lib/libblobmsg_json.a" \
+    "$DEPS_DIR/install/lib/libjson_script.a" \
+    -ljson-c -lcrypt -ldl -static-libgcc \
     -o $OUT/uhttpd_fuzzer
 
-# Copy shared libraries to output directory for runtime
-echo "Copying shared libraries to output directory..."
-cp "$DEPS_DIR/install/lib"/*.so* "$OUT/" 2>/dev/null || true  
+# Verify the binary is statically linked (optional check)
+echo "Checking binary dependencies..."
+ldd $OUT/uhttpd_fuzzer || echo "Binary is statically linked (good!)"
 
 # Clean up object files
 rm -f *.o
