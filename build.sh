@@ -52,6 +52,10 @@ echo "Making fuzzing target functions non-static..."
 sed -i 's/static void client_parse_header/void client_parse_header/g' client.c
 sed -i 's/static bool __handle_file_request/bool __handle_file_request/g' file.c
 
+# Remove _GNU_SOURCE redefinitions to avoid warnings (it's already in CFLAGS)
+echo "Removing _GNU_SOURCE redefinitions to avoid warnings..."
+find . -name "*.c" -exec sed -i 's/#define _GNU_SOURCE//g' {} \;
+
 # Add function declarations to header if not already present
 if ! grep -q "void client_parse_header" uhttpd.h; then
     echo "Adding client_parse_header declaration to uhttpd.h..."
@@ -128,14 +132,31 @@ $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
 echo "Linking fuzzer statically..."  
 
-# Link statically using the static libraries we built
+# Check which static libraries were actually built
+echo "Available static libraries:"
+ls -la "$DEPS_DIR/install/lib/"*.a 2>/dev/null || echo "No .a files found"
+
+# Build list of static libraries that exist
+STATIC_LIBS=""
+if [ -f "$DEPS_DIR/install/lib/libubox.a" ]; then
+    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libubox.a"
+    echo "Found libubox.a"
+fi
+if [ -f "$DEPS_DIR/install/lib/libblobmsg_json.a" ]; then
+    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libblobmsg_json.a"
+    echo "Found libblobmsg_json.a"
+fi
+if [ -f "$DEPS_DIR/install/lib/libjson_script.a" ]; then
+    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libjson_script.a"
+    echo "Found libjson_script.a"
+fi
+
+# Link statically using the static libraries we actually have
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o \
     $LDFLAGS \
-    "$DEPS_DIR/install/lib/libubox.a" \
-    "$DEPS_DIR/install/lib/libblobmsg_json.a" \
-    "$DEPS_DIR/install/lib/libjson_script.a" \
+    $STATIC_LIBS \
     -ljson-c -lcrypt -ldl -static-libgcc \
     -o $OUT/uhttpd_fuzzer
 
