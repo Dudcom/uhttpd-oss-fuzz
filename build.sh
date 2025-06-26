@@ -122,9 +122,11 @@ void uh_tls_client_detach(void *cl) { }
 void uh_connection_close(void *cl) { }
 
 // JSON script functions (stubbed since we don't need handler functionality for fuzzing)
-int json_script_init(void *ctx, void *ops, void *priv) { return 0; }
+// These match the signatures used in handler.c
+void json_script_init(void *ctx, void *ops, void *priv) { }
 void *json_script_file_from_blobmsg(const char *name, void *blob, int len) { return NULL; }
-int json_script_run_file(void *ctx, void *file, void *vars) { return 0; }
+void json_script_run_file(void *ctx, void *file, void *vars) { }
+void json_script_abort(void *ctx) { }
 EOF
 
 $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
@@ -136,7 +138,7 @@ echo "Linking fuzzer statically..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -static -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
+    $LDFLAGS -static -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # If static linking fails, try dynamic linking and copy shared libraries
@@ -163,7 +165,7 @@ if [ $? -ne 0 ]; then
     $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
         utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
         relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-        $LDFLAGS -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
+        $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
         -o $OUT/uhttpd_fuzzer
     
     # Copy shared libraries to output directory
