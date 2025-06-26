@@ -9,16 +9,27 @@ DEPS_DIR="$PWD/deps"
 mkdir -p "$DEPS_DIR"
 cd "$DEPS_DIR"
 
+# Clean up any existing builds to avoid conflicts
+rm -rf libubox/build ubus/build
+
 # Download and build libubox (required for uhttpd)
 if [ ! -d "libubox" ]; then
     echo "Downloading libubox..."
     git clone https://github.com/openwrt/libubox.git
     cd libubox
-    rm -rf tests examples
+    rm -rf tests
+    # Don't remove examples directory, just ensure it won't be built
     cd ..
 fi
 
 cd libubox
+
+# Patch CMakeLists.txt to conditionally add examples directory
+if [ -f CMakeLists.txt ]; then
+    # Replace unconditional ADD_SUBDIRECTORY with conditional one
+    sed -i 's/ADD_SUBDIRECTORY(examples)/IF(BUILD_EXAMPLES)\n  ADD_SUBDIRECTORY(examples)\nENDIF()/g' CMakeLists.txt
+fi
+
 mkdir -p build
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
@@ -37,11 +48,19 @@ if [ ! -d "ubus" ]; then
     echo "Downloading libubus..."
     git clone https://git.openwrt.org/project/ubus.git
     cd ubus
-    rm -rf tests examples
+    rm -rf tests
+    # Don't remove examples directory, just ensure it won't be built
     cd ..
 fi
 
 cd ubus
+
+# Patch CMakeLists.txt to conditionally add examples directory if needed
+if [ -f CMakeLists.txt ]; then
+    # Replace unconditional ADD_SUBDIRECTORY with conditional one
+    sed -i 's/ADD_SUBDIRECTORY(examples)/IF(BUILD_EXAMPLES)\n  ADD_SUBDIRECTORY(examples)\nENDIF()/g' CMakeLists.txt
+fi
+
 mkdir -p build
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
@@ -56,6 +75,22 @@ cd "$DEPS_DIR"
 
 # Return to source directory
 cd ..
+
+# Remove static declarations from functions we want to fuzz
+echo "Making fuzzing target functions non-static..."
+sed -i 's/static void client_parse_header/void client_parse_header/g' client.c
+sed -i 's/static bool __handle_file_request/bool __handle_file_request/g' file.c
+
+# Add function declarations to header if not already present
+if ! grep -q "void client_parse_header" uhttpd.h; then
+    echo "Adding client_parse_header declaration to uhttpd.h..."
+    sed -i '/void uh_client_notify_state/a void client_parse_header(struct client *cl, char *data);' uhttpd.h
+fi
+
+if ! grep -q "bool __handle_file_request" uhttpd.h; then
+    echo "Adding __handle_file_request declaration to uhttpd.h..."
+    sed -i '/void client_parse_header/a bool __handle_file_request(struct client *cl, char *url, bool is_error_handler);' uhttpd.h
+fi
 
 # Set up build environment
 : "${CFLAGS:=-O1 -fno-omit-frame-pointer}"
