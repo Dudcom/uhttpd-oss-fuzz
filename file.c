@@ -636,7 +636,7 @@ static void uh_file_data(struct client *cl, struct path_info *pi, int fd)
 	file_write_cb(cl);
 }
 
-static bool __handle_file_request(struct client *cl, char *url, bool is_error_handler);
+bool __handle_file_request(struct client *cl, char *url, bool is_error_handler);
 
 static void uh_file_request(struct client *cl, const char *url,
 			    struct path_info *pi, struct blob_attr **tb)
@@ -835,7 +835,7 @@ uh_invoke_handler(struct client *cl, struct dispatch_handler *d, char *url, stru
 	uh_invoke_script(cl, d, url, pi);
 }
 
-static bool __handle_file_request(struct client *cl, char *url, bool is_error_handler)
+bool __handle_file_request(struct client *cl, char *url, bool is_error_handler)
 {
 	static const struct blobmsg_policy hdr_policy[__HDR_MAX] = {
 		[HDR_AUTHORIZATION] = { "authorization", BLOBMSG_TYPE_STRING },

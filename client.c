@@ -359,7 +359,7 @@ static void client_header_complete(struct client *cl)
 	uh_handle_request(cl);
 }
 
-static void client_parse_header(struct client *cl, char *data)
+void client_parse_header(struct client *cl, char *data)
 {
 	struct http_request *r = &cl->request;
 	char *err;
