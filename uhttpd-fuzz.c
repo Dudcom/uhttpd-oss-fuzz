@@ -40,17 +40,8 @@ struct in_addr {
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
-// Global configuration needed by uhttpd functions
-struct config conf = {
-    .docroot = "/tmp",
-    .realm = "Test",
-    .network_timeout = 30,
-    .http_keepalive = 20,
-    .max_script_requests = 3,
-    .max_connections = 100,
-    .cgi_prefix = "/cgi-bin",
-    .cgi_path = "/bin:/usr/bin"
-};
+// Global configuration is defined in main.c, just declare it as extern
+extern struct config conf;
 
 // No need for mock functions - we'll link against the real libubox library
 

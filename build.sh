@@ -120,9 +120,22 @@ cat > missing_symbols.c << 'EOF'
 // Minimal stub functions for missing symbols that aren't in libubox
 #include <stdint.h>
 #include <stdio.h>
+#include "uhttpd.h"
 
 // Global buffer used by uhttpd
 char uh_buf[4096];
+
+// Global configuration needed by uhttpd functions
+struct config conf = {
+    .docroot = "/tmp",
+    .realm = "Test",
+    .network_timeout = 30,
+    .http_keepalive = 20,
+    .max_script_requests = 3,
+    .max_connections = 100,
+    .cgi_prefix = "/cgi-bin",
+    .cgi_path = "/bin:/usr/bin"
+};
 
 // TLS functions (stubbed since TLS is disabled)
 int uh_tls_init(const char *key, const char *crt, const char *ciphers) { return 0; }
