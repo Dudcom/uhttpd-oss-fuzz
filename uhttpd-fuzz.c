@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 // Mock some system includes that might not be available in fuzzing environment
 #ifndef _WIN32
@@ -87,6 +89,33 @@ static void init_client(struct client *cl) {
     memset(&cl->request, 0, sizeof(cl->request));
     cl->request.version = UH_HTTP_VER_1_1;
     cl->request.method = UH_HTTP_MSG_GET;
+    
+    // Set up a mock ustream to prevent null pointer crashes
+    // We'll use the sfd.stream which is part of the client structure
+    cl->us = &cl->sfd.stream;
+    
+    // Initialize the ustream with minimal setup to prevent crashes
+    // Set up a dummy file descriptor (using /dev/null to avoid issues)
+    cl->sfd.fd.fd = open("/dev/null", O_WRONLY);
+    if (cl->sfd.fd.fd < 0) cl->sfd.fd.fd = STDOUT_FILENO; // fallback to stdout
+    
+    // Initialize the ustream_fd structure
+    ustream_fd_init(&cl->sfd, cl->sfd.fd.fd);
+}
+
+// Helper function to clean up the mock client
+static void cleanup_client(struct client *cl) {
+    // Clean up blob buffers
+    blob_buf_free(&cl->hdr);
+    blob_buf_free(&cl->hdr_response);
+    
+    // Clean up the mock file descriptor if we opened /dev/null
+    if (cl->sfd.fd.fd > STDERR_FILENO) {
+        close(cl->sfd.fd.fd);
+    }
+    
+    // Free the ustream
+    ustream_free(&cl->sfd.stream);
 }
 
 // Helper function to add URL data to client header blob buffer
@@ -246,8 +275,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     
     // Clean up blob buffers
-    blob_buf_free(&cl.hdr);
-    blob_buf_free(&cl.hdr_response);
+    cleanup_client(&cl);
     
     return 0;
 }
