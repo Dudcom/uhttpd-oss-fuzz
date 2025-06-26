@@ -128,11 +128,11 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer statically..."
+echo "Linking fuzzer..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -static -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
+    $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files
