@@ -43,35 +43,8 @@ make -j$(nproc)
 make install
 cd "$DEPS_DIR"
 
-# Download and build libubus (optional but commonly used with uhttpd)
-if [ ! -d "ubus" ]; then
-    echo "Downloading libubus..."
-    git clone https://git.openwrt.org/project/ubus.git
-    cd ubus
-    rm -rf tests
-    # Don't remove examples directory, just ensure it won't be built
-    cd ..
-fi
-
-cd ubus
-
-# Patch CMakeLists.txt to conditionally add examples directory if needed
-if [ -f CMakeLists.txt ]; then
-    # Replace unconditional ADD_SUBDIRECTORY with conditional one
-    sed -i 's/ADD_SUBDIRECTORY(examples)/IF(BUILD_EXAMPLES)\n  ADD_SUBDIRECTORY(examples)\nENDIF()/g' CMakeLists.txt
-fi
-
-mkdir -p build
-cd build
-cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
-         -DCMAKE_C_FLAGS="$CFLAGS" \
-         -DBUILD_LUA=OFF \
-         -DBUILD_EXAMPLES=OFF \
-         -DBUILD_TESTS=OFF \
-         -DBUILD_SHARED_LIBS=OFF
-make -j$(nproc)
-make install
-cd "$DEPS_DIR"
+# Skip libubus build since we're not using ubus support
+echo "Skipping libubus build (ubus support disabled for fuzzing)"
 
 # Skip ustream-ssl build since we're disabling TLS for fuzzing
 echo "Skipping ustream-ssl build (TLS disabled for fuzzing compatibility)"
@@ -110,8 +83,8 @@ export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_
 export CFLAGS="$CFLAGS -I$DEPS_DIR/install/include"
 export LDFLAGS="$LDFLAGS -L$DEPS_DIR/install/lib"
 
-# Add uhttpd-specific flags (disable TLS to avoid OpenSSL compatibility issues in fuzzing)
-export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW -DHAVE_UBUS"
+# Add uhttpd-specific flags (disable TLS and UBUS to avoid dependency issues in fuzzing)
+export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW"
 export CFLAGS="$CFLAGS -Wno-c23-extensions -std=gnu99"
 
 echo "Compiling uhttpd source files..."
@@ -130,29 +103,17 @@ $CC $CFLAGS -c relay.c -o relay.o
 $CC $CFLAGS -c cgi.c -o cgi.o
 
 # Conditionally compile optional modules
-if [ -f "ubus.c" ]; then
-    echo "Compiling ubus support..."
-    $CC $CFLAGS -c ubus.c -o ubus.o
-    UBUS_OBJ="ubus.o"
-else
-    UBUS_OBJ=""
-fi
+# Skip ubus support for fuzzing (focus on core HTTP functionality)
+echo "Skipping ubus support (not needed for fuzzing)"
+UBUS_OBJ=""
 
-if [ -f "lua.c" ]; then
-    echo "Compiling Lua support..."
-    $CC $CFLAGS -c lua.c -o lua.o
-    LUA_OBJ="lua.o"
-else
-    LUA_OBJ=""
-fi
+# Skip Lua support for fuzzing (headers not available)
+echo "Skipping Lua support (not needed for fuzzing)"
+LUA_OBJ=""
 
-if [ -f "ucode.c" ]; then
-    echo "Compiling ucode support..."
-    $CC $CFLAGS -c ucode.c -o ucode.o
-    UCODE_OBJ="ucode.o"
-else
-    UCODE_OBJ=""
-fi
+# Skip ucode support for fuzzing (headers not available)
+echo "Skipping ucode support (not needed for fuzzing)"
+UCODE_OBJ=""
 
 echo "Creating mock libubox functions for fuzzing..."
 cat > mock_libubox.c << 'EOF'
