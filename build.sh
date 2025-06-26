@@ -36,7 +36,7 @@ cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
          -DBUILD_LUA=OFF \
          -DBUILD_EXAMPLES=OFF \
          -DBUILD_TESTS=OFF \
-         -DBUILD_SHARED_LIBS=OFF
+         -DBUILD_SHARED_LIBS=ON
 make -j$(nproc)
 make install
 cd "$DEPS_DIR"
@@ -66,9 +66,9 @@ fi
 : "${PKG_CONFIG_PATH:=}"
 : "${LIB_FUZZING_ENGINE:=-fsanitize=fuzzer}"
 
-# Add fuzzing flags but NOT address sanitizer for static linking
-export CFLAGS="$CFLAGS -fsanitize=fuzzer-no-link"
-export LDFLAGS="$LDFLAGS -fsanitize=fuzzer-no-link"
+# Add fuzzing flags - AddressSanitizer doesn't support static linking
+export CFLAGS="$CFLAGS -fsanitize=fuzzer-no-link,address"
+export LDFLAGS="$LDFLAGS -fsanitize=fuzzer-no-link,address"
 
 # Add dependencies to build environment
 export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
@@ -134,44 +134,16 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer statically..."
+echo "Linking fuzzer dynamically (AddressSanitizer requires dynamic linking)..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -static -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
+    $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
-# If static linking fails, try dynamic linking and copy shared libraries
-if [ $? -ne 0 ]; then
-    echo "Static linking failed, trying dynamic linking..."
-    
-    # Rebuild libubox with shared libraries
-    cd "$DEPS_DIR/libubox/build"
-    cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
-             -DCMAKE_C_FLAGS="$CFLAGS" \
-             -DBUILD_LUA=OFF \
-             -DBUILD_EXAMPLES=OFF \
-             -DBUILD_TESTS=OFF \
-             -DBUILD_SHARED_LIBS=ON
-    make -j$(nproc)
-    make install
-    cd - > /dev/null
-    
-    # Re-add address sanitizer for dynamic linking
-    export CFLAGS="$CFLAGS -fsanitize=address"
-    export LDFLAGS="$LDFLAGS -fsanitize=address"
-    
-    # Link dynamically
-    $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
-        utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
-        relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-        $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
-        -o $OUT/uhttpd_fuzzer
-    
-    # Copy shared libraries to output directory
-    echo "Copying shared libraries to output directory..."
-    cp "$DEPS_DIR/install/lib"/*.so* "$OUT/" 2>/dev/null || true
-fi
+# Copy shared libraries to output directory for runtime
+echo "Copying shared libraries to output directory..."
+cp "$DEPS_DIR/install/lib"/*.so* "$OUT/" 2>/dev/null || true
 
 # Clean up object files
 rm -f *.o
