@@ -90,6 +90,9 @@ static void init_client(struct client *cl) {
     cl->request.version = UH_HTTP_VER_1_1;
     cl->request.method = UH_HTTP_MSG_GET;
     
+    // Initialize the timeout structure to prevent crashes
+    memset(&cl->timeout, 0, sizeof(cl->timeout));
+    
     // Set up a mock ustream to prevent null pointer crashes
     // We'll use the sfd.stream which is part of the client structure
     cl->us = &cl->sfd.stream;
@@ -105,6 +108,12 @@ static void init_client(struct client *cl) {
 
 // Helper function to clean up the mock client
 static void cleanup_client(struct client *cl) {
+    // Cancel any pending timeouts to prevent stack-use-after-return
+    // This is crucial to prevent the uloop from trying to access our stack-allocated client
+    if (cl->timeout.cb) {
+        uloop_timeout_cancel(&cl->timeout);
+    }
+    
     // Clean up blob buffers
     blob_buf_free(&cl->hdr);
     blob_buf_free(&cl->hdr_response);
