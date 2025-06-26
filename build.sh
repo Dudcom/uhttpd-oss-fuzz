@@ -122,6 +122,7 @@ cat > mock_libubox.c << 'EOF'
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 
 // Blob/blobmsg functions
 void blob_buf_init(void *buf, int id) { 
