@@ -35,9 +35,7 @@ cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
          -DCMAKE_C_FLAGS="$CFLAGS" \
          -DBUILD_LUA=OFF \
          -DBUILD_EXAMPLES=OFF \
-         -DBUILD_TESTS=OFF \
-         -DBUILD_STATIC=ON \
-         -DBUILD_SHARED_LIBS=OFF
+         -DBUILD_TESTS=OFF
 make -j$(nproc)
 make install
 cd "$DEPS_DIR"
@@ -121,6 +119,11 @@ void uh_tls_client_detach(void *cl) { }
 
 // Connection close function
 void uh_connection_close(void *cl) { }
+
+// JSON script functions (stubbed since we don't need handler functionality for fuzzing)
+int json_script_init(void *ctx, void *ops, void *priv) { return 0; }
+void *json_script_file_from_blobmsg(const char *name, void *blob, int len) { return NULL; }
+int json_script_run_file(void *ctx, void *file, void *vars) { return 0; }
 EOF
 
 $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
@@ -132,7 +135,7 @@ echo "Linking fuzzer..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
+    $LDFLAGS -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files
