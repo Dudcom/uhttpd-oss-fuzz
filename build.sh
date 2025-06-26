@@ -2,7 +2,7 @@
 
 # Install dependencies
 apt-get update
-apt-get install -y build-essential cmake pkg-config git libjson-c-dev libssl-dev
+apt-get install -y build-essential cmake pkg-config git libjson-c-dev libssl-dev patchelf
 
 # Set up dependencies directory
 DEPS_DIR="$PWD/deps"
@@ -32,17 +32,24 @@ fi
 mkdir -p build
 cd build
 
-# Build libubox as STATIC libraries
+# Build libubox as SHARED libraries (for OSS-Fuzz $ORIGIN approach)
 cmake .. -DCMAKE_INSTALL_PREFIX="$DEPS_DIR/install" \
          -DCMAKE_C_FLAGS="$CFLAGS" \
          -DBUILD_LUA=OFF \
          -DBUILD_EXAMPLES=OFF \
          -DBUILD_TESTS=OFF \
-         -DBUILD_SHARED_LIBS=OFF \
+         -DBUILD_SHARED_LIBS=ON \
          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 make -j$(nproc)
 make install
 cd "$DEPS_DIR"
+
+# Create lib directory in $OUT for shared libraries
+mkdir -p "$OUT/lib"
+
+# Copy shared libraries to $OUT/lib
+echo "Copying shared libraries to $OUT/lib..."
+cp "$DEPS_DIR/install/lib"/*.so* "$OUT/lib/" 2>/dev/null || true
 
 # Return to source directory
 cd ..
@@ -81,6 +88,9 @@ export LDFLAGS="$LDFLAGS -fsanitize=fuzzer-no-link,address"
 export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"  
 export CFLAGS="$CFLAGS -I$DEPS_DIR/install/include"
 export LDFLAGS="$LDFLAGS -L$DEPS_DIR/install/lib"
+
+# Add $ORIGIN rpath for shared libraries
+export LDFLAGS="$LDFLAGS -Wl,-rpath,'\$ORIGIN/lib'"
 
 # Add uhttpd-specific flags
 export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW"  
@@ -130,42 +140,35 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer statically..."  
+echo "Linking fuzzer with shared libraries..."  
 
-# Check which static libraries were actually built
-echo "Available static libraries:"
-ls -la "$DEPS_DIR/install/lib/"*.a 2>/dev/null || echo "No .a files found"
-
-# Build list of static libraries that exist
-STATIC_LIBS=""
-if [ -f "$DEPS_DIR/install/lib/libubox.a" ]; then
-    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libubox.a"
-    echo "Found libubox.a"
-fi
-if [ -f "$DEPS_DIR/install/lib/libblobmsg_json.a" ]; then
-    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libblobmsg_json.a"
-    echo "Found libblobmsg_json.a"
-fi
-if [ -f "$DEPS_DIR/install/lib/libjson_script.a" ]; then
-    STATIC_LIBS="$STATIC_LIBS $DEPS_DIR/install/lib/libjson_script.a"
-    echo "Found libjson_script.a"
-fi
-
-# Link statically using the static libraries we actually have
+# Link with shared libraries using $ORIGIN rpath
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
     relay.o cgi.o missing_symbols.o \
     $LDFLAGS \
-    $STATIC_LIBS \
-    -ljson-c -lcrypt -ldl -static-libgcc \
+    -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
-# Verify the binary is statically linked (optional check)
+# Alternative: Use patchelf to set rpath after linking (if needed)
+# This is useful if the linker flags don't work properly
+echo "Ensuring correct rpath with patchelf..."
+patchelf --set-rpath '$ORIGIN/lib' $OUT/uhttpd_fuzzer
+
+# Verify the binary dependencies and rpath
 echo "Checking binary dependencies..."
-ldd $OUT/uhttpd_fuzzer || echo "Binary is statically linked (good!)"
+ldd $OUT/uhttpd_fuzzer || echo "ldd failed, but that's expected with $ORIGIN rpath"
+
+echo "Checking rpath..."
+readelf -d $OUT/uhttpd_fuzzer | grep -E "(RPATH|RUNPATH)" || echo "No rpath found"
+
+# Verify that all required shared libraries are in $OUT/lib
+echo "Shared libraries in $OUT/lib:"
+ls -la $OUT/lib/
 
 # Clean up object files
 rm -f *.o
 
 echo "Build completed successfully!"  
 echo "Fuzzer binary: $OUT/uhttpd_fuzzer"
+echo "Shared libraries: $OUT/lib/"
