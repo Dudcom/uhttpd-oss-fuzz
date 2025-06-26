@@ -115,96 +115,25 @@ LUA_OBJ=""
 echo "Skipping ucode support (not needed for fuzzing)"
 UCODE_OBJ=""
 
-echo "Creating mock libubox functions for fuzzing..."
-cat > mock_libubox.c << 'EOF'
-// Mock libubox functions for fuzzing
-#include <stdarg.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
+echo "Creating minimal stub functions for missing symbols..."
+cat > missing_symbols.c << 'EOF'
+// Minimal stub functions for missing symbols that aren't in libubox
 #include <stdint.h>
+#include <stdio.h>
 
-// Blob/blobmsg functions
-void blob_buf_init(void *buf, int id) { 
-    memset(buf, 0, 64); // Rough size estimate
-}
+// Global buffer used by uhttpd
+char uh_buf[4096];
 
-void blob_buf_free(void *buf) { }
-
-int blobmsg_add_string(void *buf, const char *name, const char *string) { 
-    return 0; 
-}
-
-char *blobmsg_data(void *attr) { 
-    static char dummy[] = "test"; 
-    return dummy; 
-}
-
-char *blobmsg_name(void *attr) { 
-    static char dummy[] = "name"; 
-    return dummy; 
-}
-
-void *blob_data(void *attr) { 
-    return attr; 
-}
-
-int blob_len(void *attr) { 
-    return 4; 
-}
-
-int blobmsg_parse(void *policy, int policy_len, void **tb, void *data, int len) { 
-    // Clear the table
-    if (tb) {
-        for (int i = 0; i < policy_len; i++) {
-            tb[i] = NULL;
-        }
-    }
-    return 0; 
-}
-
-char *blobmsg_get_string(void *attr) { 
-    static char dummy[] = "value"; 
-    return dummy; 
-}
-
-// Uloop functions  
-void uloop_timeout_cancel(void *timeout) { }
-void uloop_timeout_set(void *timeout, int msecs) { }
-
-// List functions
-void list_add(void *new, void *head) { }
-void list_add_tail(void *new, void *head) { }
-void list_del(void *entry) { }
-
-// Utility functions
-int canonpath(const char *path, char *result) { 
-    if (result && path) {
-        strncpy(result, path, 256);
-        result[255] = '\0';
-    }
-    return path ? 1 : 0;
-}
-
-// Additional blob functions that might be needed
-void blob_for_each_attr(void *pos, void *attr, int rem) { }
-int blobmsg_type(void *attr) { return 0; }
-int blobmsg_data_len(void *attr) { return 0; }
-int blobmsg_parse_array(void *policy, int policy_len, void **tb, void *data, int len) { return 0; }
-void *blobmsg_open_table(void *buf, const char *name) { return NULL; }
-void blobmsg_close_table(void *buf, void *cookie) { }
-int blobmsg_add_json_element(void *buf, const char *name, void *json) { return 0; }
-int blobmsg_add_field(void *buf, int type, const char *name, void *data, int len) { return 0; }
-void blobmsg_add_u32(void *buf, const char *name, uint32_t val) { }
-
-// TLS functions (mocked since TLS is disabled)
+// TLS functions (stubbed since TLS is disabled)
 int uh_tls_init(const char *key, const char *crt, const char *ciphers) { return 0; }
 void uh_tls_client_attach(void *cl) { }
 void uh_tls_client_detach(void *cl) { }
-int uh_first_tls_port(int family) { return -1; }
+
+// Connection close function
+void uh_connection_close(void *cl) { }
 EOF
 
-$CC $CFLAGS -c mock_libubox.c -o mock_libubox.o
+$CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
@@ -212,8 +141,8 @@ $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 echo "Linking fuzzer..."
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
-    relay.o cgi.o mock_libubox.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
-    $LDFLAGS -ljson-c -lcrypt -ldl \
+    relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
+    $LDFLAGS -lubox -lblobmsg_json -ljson_script -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Clean up object files

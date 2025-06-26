@@ -52,54 +52,7 @@ struct config conf = {
     .cgi_path = "/bin:/usr/bin"
 };
 
-// Mock ustream functions to avoid crashes
-int ustream_printf(struct ustream *s, const char *format, ...) { 
-    (void)s; (void)format; // Suppress unused parameter warnings
-    return 0;
-}
-void ustream_consume(struct ustream *s, int len) { 
-    (void)s; (void)len; 
-}
-char *ustream_get_read_buf(struct ustream *s, int *len) { 
-    (void)s; 
-    *len = 0; 
-    return NULL; 
-}
-
-// Mock other functions to avoid linking issues
-void uh_request_done(struct client *cl) { 
-    (void)cl; 
-}
-void uh_http_header(struct client *cl, int code, const char *summary) { 
-    (void)cl; (void)code; (void)summary; 
-}
-void uh_chunk_printf(struct client *cl, const char *format, ...) { 
-    (void)cl; (void)format; 
-}
-void uh_connection_close(struct client *cl) { 
-    (void)cl; 
-}
-bool uh_use_chunked(struct client *cl) { 
-    (void)cl; 
-    return false; 
-}
-struct path_info *uh_path_lookup(struct client *cl, const char *url) { 
-    (void)cl; (void)url; 
-    return NULL; 
-}
-bool uh_auth_check(struct client *cl, const char *path, const char *auth, char **uptr, char **pptr) { 
-    (void)cl; (void)path; (void)auth; (void)uptr; (void)pptr; 
-    return true; 
-}
-void uh_dispatch_add(struct dispatch_handler *d) { 
-    (void)d; 
-}
-void uh_invoke_handler(struct client *cl, struct dispatch_handler *d, char *url, struct path_info *pi) { 
-    (void)cl; (void)d; (void)url; (void)pi; 
-}
-void uh_file_request(struct client *cl, const char *url, struct path_info *pi, struct blob_attr **tb) { 
-    (void)cl; (void)url; (void)pi; (void)tb; 
-}
+// No need for mock functions - we'll link against the real libubox library
 
 // Helper function to initialize a mock client structure
 static void init_client(struct client *cl) {
