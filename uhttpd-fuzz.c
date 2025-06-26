@@ -242,7 +242,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         
         case 3: {
             // Test uh_handle_request
-            // Set up a realistic request in the client structure
             char *url_data = sanitize_url_data(test_data, test_size);
             if (url_data) {
                 // Since blob functions are mocked, just call uh_handle_request directly
