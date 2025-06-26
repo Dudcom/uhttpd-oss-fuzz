@@ -60,51 +60,41 @@ if ! grep -q "bool __handle_file_request" uhttpd.h; then
     sed -i '/void client_parse_header/a bool __handle_file_request(struct client *cl, char *url, bool is_error_handler);' uhttpd.h
 fi
 
-# Set up build environment
+# Set up build environment  
 : "${CFLAGS:=-O1 -fno-omit-frame-pointer}"
 : "${LDFLAGS:=}"
 : "${PKG_CONFIG_PATH:=}"
 : "${LIB_FUZZING_ENGINE:=-fsanitize=fuzzer}"
 
-# Add fuzzing flags - AddressSanitizer doesn't support static linking
-export CFLAGS="$CFLAGS -fsanitize=fuzzer-no-link,address"
+# Add fuzzing flags
+export CFLAGS="$CFLAGS -fsanitize=fuzzer-no-link,address"  
 export LDFLAGS="$LDFLAGS -fsanitize=fuzzer-no-link,address"
 
 # Add dependencies to build environment
-export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="$DEPS_DIR/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"  
 export CFLAGS="$CFLAGS -I$DEPS_DIR/install/include"
 export LDFLAGS="$LDFLAGS -L$DEPS_DIR/install/lib"
 
-# Add uhttpd-specific flags (disable TLS and UBUS to avoid dependency issues in fuzzing)
-export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW"
+# Add uhttpd-specific flags
+export CFLAGS="$CFLAGS -D_GNU_SOURCE -DHAVE_SHADOW"  
 export CFLAGS="$CFLAGS -Wno-c23-extensions -std=gnu99"
 
 echo "Compiling uhttpd source files..."
 
 # Compile uhttpd source files (excluding main.c to avoid conflicts)
 $CC $CFLAGS -c utils.c -o utils.o
-$CC $CFLAGS -c client.c -o client.o  
-$CC $CFLAGS -c file.c -o file.o
+$CC $CFLAGS -c client.c -o client.o
+$CC $CFLAGS -c file.c -o file.o  
 $CC $CFLAGS -c auth.c -o auth.o
 $CC $CFLAGS -c proc.c -o proc.o
 $CC $CFLAGS -c handler.c -o handler.o
-$CC $CFLAGS -c listen.c -o listen.o
+$CC $CFLAGS -c listen.c -o listen.o  
 $CC $CFLAGS -c plugin.c -o plugin.o
 $CC $CFLAGS -c relay.c -o relay.o
-# Skip tls.c since TLS is disabled
+# Skip tls.c since TLS is disabled  
 $CC $CFLAGS -c cgi.c -o cgi.o
 
-# Skip optional modules for simplicity
-echo "Skipping ubus support (not needed for fuzzing)"
-UBUS_OBJ=""
-
-echo "Skipping Lua support (not needed for fuzzing)"
-LUA_OBJ=""
-
-echo "Skipping ucode support (not needed for fuzzing)"
-UCODE_OBJ=""
-
-echo "Creating minimal stub functions for missing symbols..."
+echo "Creating minimal stub functions for missing symbols..."  
 cat > missing_symbols.c << 'EOF'
 // Minimal stub functions for missing symbols that aren't in libubox
 #include <stdint.h>
@@ -115,18 +105,17 @@ char uh_buf[4096];
 
 // TLS functions (stubbed since TLS is disabled)
 int uh_tls_init(const char *key, const char *crt, const char *ciphers) { return 0; }
-void uh_tls_client_attach(void *cl) { }
+void uh_tls_client_attach(void *cl) { }  
 void uh_tls_client_detach(void *cl) { }
 
 // Connection close function
 void uh_connection_close(void *cl) { }
 
 // JSON script functions (stubbed since we don't need handler functionality for fuzzing)
-// These match the signatures used in handler.c
 void json_script_init(void *ctx, void *ops, void *priv) { }
 void *json_script_file_from_blobmsg(const char *name, void *blob, int len) { return NULL; }
 void json_script_run_file(void *ctx, void *file, void *vars) { }
-void json_script_abort(void *ctx) { }
+void json_script_abort(void *ctx) { }  
 EOF
 
 $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
@@ -134,19 +123,19 @@ $CC $CFLAGS -c missing_symbols.c -o missing_symbols.o
 echo "Compiling fuzzer..."
 $CC $CFLAGS -c uhttpd-fuzz.c -o uhttpd-fuzz.o
 
-echo "Linking fuzzer dynamically (AddressSanitizer requires dynamic linking)..."
+echo "Linking fuzzer dynamically..."  
 $CC $CFLAGS $LIB_FUZZING_ENGINE uhttpd-fuzz.o \
     utils.o client.o file.o auth.o proc.o handler.o listen.o plugin.o \
-    relay.o cgi.o missing_symbols.o $UBUS_OBJ $LUA_OBJ $UCODE_OBJ \
+    relay.o cgi.o missing_symbols.o \
     $LDFLAGS -lubox -lblobmsg_json -ljson-c -lcrypt -ldl \
     -o $OUT/uhttpd_fuzzer
 
 # Copy shared libraries to output directory for runtime
 echo "Copying shared libraries to output directory..."
-cp "$DEPS_DIR/install/lib"/*.so* "$OUT/" 2>/dev/null || true
+cp "$DEPS_DIR/install/lib"/*.so* "$OUT/" 2>/dev/null || true  
 
 # Clean up object files
 rm -f *.o
 
-echo "Build completed successfully!"
+echo "Build completed successfully!"  
 echo "Fuzzer binary: $OUT/uhttpd_fuzzer"
