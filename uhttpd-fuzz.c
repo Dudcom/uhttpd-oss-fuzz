@@ -43,7 +43,30 @@ struct in_addr {
 // Global configuration is defined in main.c, just declare it as extern
 extern struct config conf;
 
-// No need for mock functions - we'll link against the real libubox library
+// Function to initialize default configuration (from main.c)
+static void init_defaults_pre(void) {
+    // Clear the configuration structure
+    memset(&conf, 0, sizeof(conf));
+    
+    // Initialize basic configuration values
+    conf.script_timeout = 60;
+    conf.network_timeout = 30;
+    conf.http_keepalive = 20;
+    conf.max_script_requests = 3;
+    conf.max_connections = 100;
+    conf.realm = "Protected Area";
+    conf.cgi_prefix = "/cgi-bin";
+    conf.cgi_path = "/sbin:/usr/sbin:/bin:/usr/bin";
+    conf.docroot = "/tmp"; // Set a default docroot
+    conf.cgi_prefix_len = strlen(conf.cgi_prefix);
+    
+    // Initialize lists - this is crucial to prevent crashes
+    INIT_LIST_HEAD(&conf.cgi_alias);
+    INIT_LIST_HEAD(&conf.lua_prefix);
+#ifdef HAVE_UCODE
+    INIT_LIST_HEAD(&conf.ucode_prefix);
+#endif
+}
 
 // Helper function to initialize a mock client structure
 static void init_client(struct client *cl) {
@@ -61,6 +84,17 @@ static void init_client(struct client *cl) {
     memset(&cl->request, 0, sizeof(cl->request));
     cl->request.version = UH_HTTP_VER_1_1;
     cl->request.method = UH_HTTP_MSG_GET;
+}
+
+// Helper function to add URL data to client header blob buffer
+static void add_url_to_client(struct client *cl, const char *url) {
+    if (!url || !*url) {
+        url = "/"; // Default URL
+    }
+    
+    // Add the URL as the first string in the blob buffer
+    // This mimics how uhttpd normally stores parsed header data
+    blobmsg_add_string(&cl->hdr, "url", url);
 }
 
 // Helper function to sanitize header data for client_parse_header
@@ -143,6 +177,13 @@ static char* sanitize_urldecode_data(const uint8_t *data, size_t size) {
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (size < 4) return 0; // Need at least 4 bytes for our tests
     
+    // Initialize configuration on first run
+    static bool conf_initialized = false;
+    if (!conf_initialized) {
+        init_defaults_pre();
+        conf_initialized = true;
+    }
+    
     // Use first byte to determine which function to test
     uint8_t test_selector = data[0] % 4;
     const uint8_t *test_data = data + 1;
@@ -188,8 +229,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             // Test uh_handle_request
             char *url_data = sanitize_url_data(test_data, test_size);
             if (url_data) {
-                // Since blob functions are mocked, just call uh_handle_request directly
-                // The function will work with the mocked blob data
+                // Add URL data to the client's header blob buffer
+                // This is required because uh_handle_request expects to find the URL there
+                add_url_to_client(&cl, url_data);
+                
+                // Call uh_handle_request with properly initialized client
                 uh_handle_request(&cl);
                 free(url_data);
             }
