@@ -196,18 +196,21 @@ static void init_path_info(struct path_info *pi, const uint8_t *data, size_t siz
     }
 }
 
+int LLVMFuzzerInitialize(int *argc, char ***argv) {
+    init_defaults_pre();
+    return 0;
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (size < 4) return 0;
-    static bool conf_initialized = false;
-    if (!conf_initialized) {
-        init_defaults_pre();
-        conf_initialized = true;
-    }
+    
     uint8_t test_selector = data[0] % 5;
     const uint8_t *test_data = data + 1;
     size_t test_size = size - 1;
+    
     struct client cl;
     init_client(&cl);
+    
     switch (test_selector) {
         case 0: {
             char *header_data = sanitize_header_data(test_data, test_size);
