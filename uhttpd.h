@@ -329,6 +329,7 @@ void uh_client_read_cb(struct client *cl);
 void uh_client_notify_state(struct client *cl);
 void client_parse_header(struct client *cl, char *data);
 bool __handle_file_request(struct client *cl, char *url, bool is_error_handler);
+void cgi_handle_request(struct client *cl, char *url, struct path_info *pi);
 
 void uh_auth_add(const char *path, const char *user, const char *pass);
 bool uh_auth_check(struct client *cl, const char *path, const char *auth,

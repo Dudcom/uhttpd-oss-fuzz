@@ -64,7 +64,7 @@ static void cgi_main(struct client *cl, struct path_info *pi, char *url)
 	       "  %s: %s\n", ip ? ip->path : pi->phys, strerror(errno));
 }
 
-static void cgi_handle_request(struct client *cl, char *url, struct path_info *pi)
+void cgi_handle_request(struct client *cl, char *url, struct path_info *pi)
 {
 	unsigned int mode = S_IFREG | S_IXOTH;
 	char *escaped_url;

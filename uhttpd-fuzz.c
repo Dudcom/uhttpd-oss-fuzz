@@ -9,14 +9,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-// Mock some system includes that might not be available in fuzzing environment
-#ifndef _WIN32
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#else
-// Windows equivalents or stubs
 typedef int socklen_t;
 #define AF_INET 2
 #define AF_INET6 10
@@ -31,12 +23,9 @@ struct in_addr {
 };
 #endif
 
-// Include blobmsg header explicitly
 #include <libubox/blobmsg.h>
-
 #include "uhttpd.h"
 
-// Define missing macros that might be needed
 #ifndef __HDR_MAX
 #define __HDR_MAX 16
 #endif
@@ -45,15 +34,10 @@ struct in_addr {
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
-// Global configuration is defined in main.c, just declare it as extern
 extern struct config conf;
 
-// Function to initialize default configuration (from main.c)
 static void init_defaults_pre(void) {
-    // Clear the configuration structure
     memset(&conf, 0, sizeof(conf));
-    
-    // Initialize basic configuration values
     conf.script_timeout = 60;
     conf.network_timeout = 30;
     conf.http_keepalive = 20;
@@ -62,10 +46,8 @@ static void init_defaults_pre(void) {
     conf.realm = "Protected Area";
     conf.cgi_prefix = "/cgi-bin";
     conf.cgi_path = "/sbin:/usr/sbin:/bin:/usr/bin";
-    conf.docroot = "/tmp"; // Set a default docroot
+    conf.docroot = "/tmp";
     conf.cgi_prefix_len = strlen(conf.cgi_prefix);
-    
-    // Initialize lists - this is crucial to prevent crashes
     INIT_LIST_HEAD(&conf.cgi_alias);
     INIT_LIST_HEAD(&conf.lua_prefix);
 #ifdef HAVE_UCODE
@@ -73,115 +55,77 @@ static void init_defaults_pre(void) {
 #endif
 }
 
-// Helper function to initialize a mock client structure
 static void init_client(struct client *cl) {
     memset(cl, 0, sizeof(*cl));
-    
-    // Initialize blob buffers
     blob_buf_init(&cl->hdr, 0);
     blob_buf_init(&cl->hdr_response, 0);
-    
-    // Set up basic client state
     cl->state = CLIENT_STATE_HEADER;
     cl->id = 1;
-    
-    // Initialize HTTP request
     memset(&cl->request, 0, sizeof(cl->request));
     cl->request.version = UH_HTTP_VER_1_1;
     cl->request.method = UH_HTTP_MSG_GET;
-    
-    // Initialize the timeout structure to prevent crashes
     memset(&cl->timeout, 0, sizeof(cl->timeout));
-    
-    // Set up a mock ustream to prevent null pointer crashes
-    // We'll use the sfd.stream which is part of the client structure
+    memset(&cl->dispatch, 0, sizeof(cl->dispatch));
     cl->us = &cl->sfd.stream;
-    
-    // Initialize the ustream with minimal setup to prevent crashes
-    // Set up a dummy file descriptor (using /dev/null to avoid issues)
     cl->sfd.fd.fd = open("/dev/null", O_WRONLY);
-    if (cl->sfd.fd.fd < 0) cl->sfd.fd.fd = STDOUT_FILENO; // fallback to stdout
-    
-    // Initialize the ustream_fd structure
+    if (cl->sfd.fd.fd < 0) cl->sfd.fd.fd = STDOUT_FILENO;
     ustream_fd_init(&cl->sfd, cl->sfd.fd.fd);
 }
 
-// Helper function to clean up the mock client
 static void cleanup_client(struct client *cl) {
-    // Cancel any pending timeouts to prevent stack-use-after-return
-    // This is crucial to prevent the uloop from trying to access our stack-allocated client
+    if (cl->dispatch.free) {
+        cl->dispatch.free(cl);
+    }
+    if (cl->dispatch.close_fds) {
+        cl->dispatch.close_fds(cl);
+    }
     if (cl->timeout.cb) {
         uloop_timeout_cancel(&cl->timeout);
     }
-    
-    // Clean up blob buffers
     blob_buf_free(&cl->hdr);
     blob_buf_free(&cl->hdr_response);
-    
-    // Clean up the mock file descriptor if we opened /dev/null
     if (cl->sfd.fd.fd > STDERR_FILENO) {
         close(cl->sfd.fd.fd);
     }
-    
-    // Free the ustream
     ustream_free(&cl->sfd.stream);
 }
 
-// Helper function to add URL data to client header blob buffer
 static void add_url_to_client(struct client *cl, const char *url) {
     if (!url || !*url) {
-        url = "/"; // Default URL
+        url = "/";
     }
-    
-    // Add the URL as the first string in the blob buffer
-    // This mimics how uhttpd normally stores parsed header data
-    // From client.c:client_parse_request: blobmsg_add_string(&cl->hdr, "URL", path);
     blobmsg_add_string(&cl->hdr, "URL", url);
 }
 
-// Helper function to sanitize header data for client_parse_header
 static char* sanitize_header_data(const uint8_t *data, size_t size) {
     if (size == 0) return NULL;
-    
     char *header = malloc(size + 1);
     if (!header) return NULL;
-    
-    // Copy data and ensure it's printable ASCII for HTTP headers
     for (size_t i = 0; i < size; i++) {
         if (data[i] >= 32 && data[i] <= 126) {
             header[i] = data[i];
         } else if (data[i] == '\t' || data[i] == ' ') {
-            header[i] = data[i]; // Allow tabs and spaces
+            header[i] = data[i];
         } else {
-            header[i] = '_'; // Replace unprintable chars
+            header[i] = '_';
         }
     }
     header[size] = '\0';
-    
-    // Ensure we have a valid header format (name: value)
     char *colon = strchr(header, ':');
     if (!colon && size > 10) {
-        // Insert a colon to make it a valid header
         header[size/2] = ':';
     }
-    
     return header;
 }
 
-// Helper function to sanitize URL data
 static char* sanitize_url_data(const uint8_t *data, size_t size) {
     if (size == 0) return strdup("/");
-    
-    char *url = malloc(size + 2); // +2 for leading slash and null terminator
+    char *url = malloc(size + 2);
     if (!url) return NULL;
-    
-    url[0] = '/'; // URLs should start with /
-    
-    // Copy data and ensure it's valid URL characters
+    url[0] = '/';
     size_t url_len = 1;
     for (size_t i = 0; i < size && url_len < size; i++) {
         char c = data[i];
-        // Allow valid URL characters
         if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || 
             (c >= '0' && c <= '9') || c == '/' || c == '.' || 
             c == '-' || c == '_' || c == '~' || c == '%' || 
@@ -190,53 +134,82 @@ static char* sanitize_url_data(const uint8_t *data, size_t size) {
         }
     }
     url[url_len] = '\0';
-    
     return url;
 }
 
-// Helper function to sanitize data for URL decoding
 static char* sanitize_urldecode_data(const uint8_t *data, size_t size) {
     if (size == 0) return NULL;
-    
     char *input = malloc(size + 1);
     if (!input) return NULL;
-    
-    // For URL decoding, we want to test various percent-encoded sequences
     for (size_t i = 0; i < size; i++) {
         char c = data[i];
-        // Allow printable ASCII and percent signs for encoding
         if ((c >= 32 && c <= 126)) {
             input[i] = c;
         } else {
-            input[i] = '%'; // Replace with percent for encoding tests
+            input[i] = '%';
         }
     }
     input[size] = '\0';
-    
     return input;
 }
 
+static void init_path_info(struct path_info *pi, const uint8_t *data, size_t size) {
+    memset(pi, 0, sizeof(*pi));
+    if (size < 4) {
+        pi->root = "/tmp/uhttpd_fuzz";
+        pi->phys = "/tmp/uhttpd_fuzz/nonexistent_test.cgi";
+        pi->name = "nonexistent_test.cgi";
+        pi->info = "";
+        pi->query = "";
+        pi->redirected = false;
+        pi->ip = NULL;
+        memset(&pi->stat, 0, sizeof(pi->stat));
+        pi->stat.st_mode = S_IFREG | S_IXOTH | S_IRUSR | S_IWUSR | S_IXUSR;
+        return;
+    }
+    uint8_t flags = data[0];
+    const uint8_t *path_data = data + 1;
+    size_t path_size = size - 1;
+    pi->root = "/tmp/uhttpd_fuzz";
+    pi->name = "fuzz_script.cgi";
+    pi->info = "";
+    pi->query = (flags & 0x01) ? "param=fuzzing&value=test" : "";
+    pi->redirected = (flags & 0x02) ? true : false;
+    static char phys_path[256];
+    snprintf(phys_path, sizeof(phys_path), "/tmp/uhttpd_fuzz/nonexistent_fuzz_%02x.cgi", flags);
+    pi->phys = phys_path;
+    memset(&pi->stat, 0, sizeof(pi->stat));
+    if (flags & 0x04) {
+        pi->stat.st_mode = S_IFREG | S_IXOTH | S_IRUSR | S_IWUSR | S_IXUSR;
+    } else {
+        pi->stat.st_mode = S_IFREG | S_IRUSR | S_IWUSR;
+    }
+    pi->stat.st_size = (path_size > 0) ? (path_data[0] % 10) * 1024 : 1024;
+    if (flags & 0x08) {
+        static struct interpreter mock_interpreter = {
+            .path = "/bin/false",
+            .ext = ".cgi"
+        };
+        pi->ip = &mock_interpreter;
+    } else {
+        pi->ip = NULL;
+    }
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    if (size < 4) return 0; // Need at least 4 bytes for our tests
-    
-    // Initialize configuration on first run
+    if (size < 4) return 0;
     static bool conf_initialized = false;
     if (!conf_initialized) {
         init_defaults_pre();
         conf_initialized = true;
     }
-    
-    // Use first byte to determine which function to test
-    uint8_t test_selector = data[0] % 4;
+    uint8_t test_selector = data[0] % 5;
     const uint8_t *test_data = data + 1;
     size_t test_size = size - 1;
-    
     struct client cl;
     init_client(&cl);
-    
     switch (test_selector) {
         case 0: {
-            // Test client_parse_header
             char *header_data = sanitize_header_data(test_data, test_size);
             if (header_data) {
                 client_parse_header(&cl, header_data);
@@ -244,9 +217,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             }
             break;
         }
-        
         case 1: {
-            // Test __handle_file_request
             char *url_data = sanitize_url_data(test_data, test_size);
             if (url_data) {
                 bool is_error_handler = (test_size > 0) ? (test_data[0] & 1) : false;
@@ -255,9 +226,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             }
             break;
         }
-        
         case 2: {
-            // Test uh_urldecode
             char *input_data = sanitize_urldecode_data(test_data, test_size);
             if (input_data) {
                 char output_buf[4096];
@@ -266,25 +235,30 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             }
             break;
         }
-        
         case 3: {
-            // Test uh_handle_request
             char *url_data = sanitize_url_data(test_data, test_size);
             if (url_data) {
-                // Add URL data to the client's header blob buffer
-                // This is required because uh_handle_request expects to find the URL there
                 add_url_to_client(&cl, url_data);
-                
-                // Call uh_handle_request with properly initialized client
                 uh_handle_request(&cl);
                 free(url_data);
             }
             break;
         }
+        case 4: {
+            if (test_size >= 2) {
+                size_t url_size = test_size / 2;
+                size_t pi_size = test_size - url_size;
+                char *url_data = sanitize_url_data(test_data, url_size);
+                if (url_data) {
+                    struct path_info pi;
+                    init_path_info(&pi, test_data + url_size, pi_size);
+                    cgi_handle_request(&cl, url_data, &pi);
+                    free(url_data);
+                }
+            }
+            break;
+        }
     }
-    
-    // Clean up blob buffers
     cleanup_client(&cl);
-    
     return 0;
 }
